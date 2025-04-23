@@ -17,7 +17,7 @@
 #define THRESHOLD_DISTANCE 100  // Example threshold in centimeters
 #define FRAME_WIDTH 640
 #define FRAME_HEIGHT 480
-#define PORT 8080
+#define PORT 8081
 
 // Structure to hold obstacle detection results
 struct ObstacleDetection {
@@ -127,8 +127,9 @@ public:
         }
 
         struct sockaddr_in address;
+        memset(&address, 0, sizeof(address));
         address.sin_family = AF_INET;
-        address.sin_addr.s_addr = INADDR_ANY;
+        address.sin_addr.s_addr = htonl(INADDR_ANY);  // Explicitly bind to all interfaces
         address.sin_port = htons(PORT);
 
         std::cout << "Binding to port " << PORT << "...\n";
