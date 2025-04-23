@@ -1,2 +1,0 @@
-# AiCamera
-ai camera
