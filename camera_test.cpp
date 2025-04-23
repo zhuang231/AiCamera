@@ -1,69 +1,67 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <chrono>
+#include <thread>
 
 int main() {
-    // List all available cameras
-    std::cout << "Checking available cameras...\n";
+    std::cout << "Testing video0 specifically...\n";
 
-    // First, try to access /dev/video* devices directly
-    std::cout << "Available video devices:\n";
-    system("ls -l /dev/video*");
+    // First, try to access /dev/video0 directly
+    std::cout << "Checking video0 device info:\n";
+    system("v4l2-ctl --device=/dev/video0 --all");
+    std::cout << "\nChecking what processes might be using video0:\n";
+    system("sudo fuser -v /dev/video0 2>&1");
     std::cout << "\n";
 
-    for (int i = 0; i < 32; i++) {
-        std::cout << "\nTrying camera " << i << "...\n";
+    // Try to open with different backends
+    std::vector<int> backends = {
+        cv::CAP_V4L2,
+        cv::CAP_GSTREAMER,
+        cv::CAP_ANY
+    };
 
-        // Set a timeout for camera opening
-        auto start = std::chrono::steady_clock::now();
+    for (auto backend : backends) {
+        std::cout << "\nTrying backend " << backend << "...\n";
+
         cv::VideoCapture cap;
+        cap.set(cv::CAP_PROP_BACKEND, backend);
 
         std::cout << "Attempting to open device...\n";
-        cap.open(i);
+        if (!cap.open(0)) {
+            std::cout << "Failed to open with this backend\n";
+            continue;
+        }
 
-        auto end = std::chrono::steady_clock::now();
-        auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        std::cout << "Successfully opened camera!\n";
+        std::cout << "Frame width: " << cap.get(cv::CAP_PROP_FRAME_WIDTH) << "\n";
+        std::cout << "Frame height: " << cap.get(cv::CAP_PROP_FRAME_HEIGHT) << "\n";
 
-        if (diff.count() > 3000) {  // If it takes more than 3 seconds, skip
-            std::cout << "Timeout while trying to open camera " << i << "\n";
+        // Try to read a frame
+        cv::Mat frame;
+        std::cout << "Attempting to read frame...\n";
+        cap >> frame;
+
+        if (frame.empty()) {
+            std::cout << "Failed to read frame\n";
             cap.release();
             continue;
         }
 
-        if (cap.isOpened()) {
-            std::cout << "Camera " << i << " opened successfully\n";
+        std::cout << "Successfully read frame!\n";
+        std::cout << "Frame size: " << frame.size() << "\n";
 
-            // Try to read a frame with timeout
-            std::cout << "Attempting to read frame...\n";
-            start = std::chrono::steady_clock::now();
-            cv::Mat frame;
-            cap >> frame;
-            end = std::chrono::steady_clock::now();
-            diff = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        // Save the frame
+        std::string filename = "test_camera_backend_" + std::to_string(backend) + ".jpg";
+        cv::imwrite(filename, frame);
+        std::cout << "Saved test image to " << filename << "\n";
 
-            if (diff.count() > 3000) {
-                std::cout << "Timeout while reading frame from camera " << i << "\n";
-                cap.release();
-                continue;
-            }
+        cap.release();
+        std::cout << "Camera released\n";
 
-            if (!frame.empty()) {
-                std::cout << "Successfully read frame from camera " << i << "\n";
-                std::cout << "Frame size: " << frame.size() << "\n";
-
-                // Save the frame to verify it's working
-                std::string filename = "test_camera_" + std::to_string(i) + ".jpg";
-                cv::imwrite(filename, frame);
-                std::cout << "Saved test image to " << filename << "\n";
-            } else {
-                std::cout << "Could not read frame from camera " << i << " (frame empty)\n";
-            }
-            cap.release();
-        } else {
-            std::cout << "Could not open camera " << i << "\n";
-        }
+        // If we got here, we succeeded
+        return 0;
     }
 
-    std::cout << "\nCamera test complete!\n";
-    return 0;
+    std::cout << "\nFailed to open camera with any backend\n";
+    return 1;
 }
