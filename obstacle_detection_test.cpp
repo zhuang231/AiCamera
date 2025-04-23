@@ -11,6 +11,7 @@
 #include <vector>
 #include <errno.h>
 #include <string.h>
+#include <signal.h>
 
 // Define constants
 #define THRESHOLD_DISTANCE 100  // Example threshold in centimeters
@@ -184,8 +185,24 @@ public:
     }
 };
 
+CameraStream* g_stream = nullptr;
+
+void signal_handler(int signum) {
+    std::cout << "\nSignal (" << signum << ") received. Cleaning up...\n";
+    if (g_stream) {
+        g_stream->cleanup();
+    }
+    exit(signum);
+}
+
 int main() {
+    // Set up signal handler
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+
     CameraStream stream;
+    g_stream = &stream;
+
     if (!stream.initialize()) {
         return -1;
     }
@@ -193,5 +210,6 @@ int main() {
     std::cout << "Starting camera stream server...\n";
     stream.stream_frames();
 
+    g_stream = nullptr;
     return 0;
 }
