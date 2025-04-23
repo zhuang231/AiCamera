@@ -2,9 +2,37 @@
 #include <iostream>
 #include <chrono>
 #include <thread>
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/videodev2.h>
+
+void print_v4l2_capabilities(const std::string& device) {
+    int fd = open(device.c_str(), O_RDWR);
+    if (fd < 0) {
+        std::cerr << "Failed to open " << device << " for capability check\n";
+        return;
+    }
+
+    v4l2_capability cap;
+    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) < 0) {
+        std::cerr << "Failed to query capabilities\n";
+        close(fd);
+        return;
+    }
+
+    std::cout << "Driver: " << (char*)cap.driver << std::endl;
+    std::cout << "Card: " << (char*)cap.card << std::endl;
+    std::cout << "Bus info: " << (char*)cap.bus_info << std::endl;
+    std::cout << "Capabilities: " << std::hex << cap.capabilities << std::dec << std::endl;
+
+    close(fd);
+}
 
 int main() {
     std::cout << "Testing video0 specifically...\n";
+
+    // Print camera capabilities
+    print_v4l2_capabilities("/dev/video0");
 
     // Force kill any processes using video0
     system("sudo fuser -k /dev/video0 2>/dev/null");
@@ -18,12 +46,22 @@ int main() {
         return 1;
     }
 
-    // Try YUYV format first as it's commonly supported
-    int format = cv::VideoWriter::fourcc('Y','U','Y','V');
-    cap.set(cv::CAP_PROP_FOURCC, format);
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-    cap.set(cv::CAP_PROP_BUFFERSIZE, 1);
+    // Try BGR3 format as it's confirmed supported
+    int format = cv::VideoWriter::fourcc('B','G','R','3');
+    if (!cap.set(cv::CAP_PROP_FOURCC, format)) {
+        std::cerr << "Failed to set BGR3 format\n";
+    }
+
+    // Set properties
+    if (!cap.set(cv::CAP_PROP_FRAME_WIDTH, 640)) {
+        std::cerr << "Failed to set width\n";
+    }
+    if (!cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480)) {
+        std::cerr << "Failed to set height\n";
+    }
+    if (!cap.set(cv::CAP_PROP_BUFFERSIZE, 1)) {
+        std::cerr << "Failed to set buffer size\n";
+    }
 
     // Get actual format and resolution
     double width = cap.get(cv::CAP_PROP_FRAME_WIDTH);
@@ -37,15 +75,26 @@ int main() {
               << "Format: " << char(fourcc & 0xFF) << char((fourcc >> 8) & 0xFF)
               << char((fourcc >> 16) & 0xFF) << char((fourcc >> 24) & 0xFF) << "\n";
 
-    // Try to read frames
+    // Try to read frames with timeout
     std::cout << "Attempting to read frames...\n";
 
     for (int i = 0; i < 5; i++) {
         cv::Mat frame;
         std::cout << "Reading frame " << i+1 << "...\n";
 
-        if (!cap.read(frame)) {
-            std::cout << "Failed to read frame\n";
+        auto start = std::chrono::steady_clock::now();
+        bool frame_read = false;
+
+        while (std::chrono::steady_clock::now() - start < std::chrono::seconds(5)) {
+            if (cap.read(frame)) {
+                frame_read = true;
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+        if (!frame_read) {
+            std::cout << "Failed to read frame within timeout\n";
             continue;
         }
 
