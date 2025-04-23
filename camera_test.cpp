@@ -6,62 +6,60 @@
 int main() {
     std::cout << "Testing video0 specifically...\n";
 
-    // First, try to access /dev/video0 directly
-    std::cout << "Checking video0 device info:\n";
-    system("v4l2-ctl --device=/dev/video0 --all");
-    std::cout << "\nChecking what processes might be using video0:\n";
-    system("sudo fuser -v /dev/video0 2>&1");
-    std::cout << "\n";
+    // Kill any existing processes using the camera
+    system("sudo kill $(sudo fuser /dev/video0 2>/dev/null) 2>/dev/null");
+    std::this_thread::sleep_for(std::chrono::seconds(2));  // Wait for cleanup
 
-    // Try to open with different backends
-    std::vector<int> backends = {
-        cv::CAP_V4L2,
-        cv::CAP_GSTREAMER,
-        cv::CAP_ANY
-    };
+    cv::VideoCapture cap;
 
-    for (auto backend : backends) {
-        std::cout << "\nTrying backend " << backend << "...\n";
+    // Set properties before opening
+    cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('B', 'G', 'R', '3'));
+    cap.set(cv::CAP_PROP_FRAME_WIDTH, 1920);  // Start with a lower resolution
+    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 1080);
 
-        cv::VideoCapture cap;
-        cap.set(cv::CAP_PROP_BACKEND, backend);
+    std::cout << "Attempting to open device with V4L2...\n";
+    cap.set(cv::CAP_PROP_BACKEND, cv::CAP_V4L2);
 
-        std::cout << "Attempting to open device...\n";
-        if (!cap.open(0)) {
-            std::cout << "Failed to open with this backend\n";
-            continue;
-        }
-
-        std::cout << "Successfully opened camera!\n";
-        std::cout << "Frame width: " << cap.get(cv::CAP_PROP_FRAME_WIDTH) << "\n";
-        std::cout << "Frame height: " << cap.get(cv::CAP_PROP_FRAME_HEIGHT) << "\n";
-
-        // Try to read a frame
-        cv::Mat frame;
-        std::cout << "Attempting to read frame...\n";
-        cap >> frame;
-
-        if (frame.empty()) {
-            std::cout << "Failed to read frame\n";
-            cap.release();
-            continue;
-        }
-
-        std::cout << "Successfully read frame!\n";
-        std::cout << "Frame size: " << frame.size() << "\n";
-
-        // Save the frame
-        std::string filename = "test_camera_backend_" + std::to_string(backend) + ".jpg";
-        cv::imwrite(filename, frame);
-        std::cout << "Saved test image to " << filename << "\n";
-
-        cap.release();
-        std::cout << "Camera released\n";
-
-        // If we got here, we succeeded
-        return 0;
+    if (!cap.open(0)) {
+        std::cerr << "Failed to open camera with V4L2\n";
+        return 1;
     }
 
-    std::cout << "\nFailed to open camera with any backend\n";
-    return 1;
+    std::cout << "Successfully opened camera!\n";
+    std::cout << "Actual width: " << cap.get(cv::CAP_PROP_FRAME_WIDTH) << "\n";
+    std::cout << "Actual height: " << cap.get(cv::CAP_PROP_FRAME_HEIGHT) << "\n";
+
+    // Try to read a frame with timeout
+    std::cout << "Attempting to read frame...\n";
+    cv::Mat frame;
+
+    auto start = std::chrono::steady_clock::now();
+    bool frame_read = false;
+
+    while (std::chrono::steady_clock::now() - start < std::chrono::seconds(5)) {
+        if (cap.read(frame)) {
+            frame_read = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    if (!frame_read || frame.empty()) {
+        std::cerr << "Failed to read frame within 5 seconds\n";
+        cap.release();
+        return 1;
+    }
+
+    std::cout << "Successfully read frame!\n";
+    std::cout << "Frame size: " << frame.size() << "\n";
+    std::cout << "Frame type: " << frame.type() << "\n";
+
+    // Save the frame
+    std::string filename = "test_camera.jpg";
+    cv::imwrite(filename, frame);
+    std::cout << "Saved test image to " << filename << "\n";
+
+    cap.release();
+    std::cout << "Camera released\n";
+    return 0;
 }
