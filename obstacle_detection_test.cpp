@@ -51,32 +51,40 @@ public:
     bool initialize() {
         std::cout << "Initializing camera...\n";
 
-        // Try Raspberry Pi camera first (video0)
-        cap.open(0);
-        if (!cap.isOpened()) {
-            std::cout << "Failed to open camera on video0, trying video1...\n";
-            // Try USB camera if Pi camera fails
-            cap.open(1);
-            if (!cap.isOpened()) {
-                std::cerr << "Error: Could not open any camera\n";
-                return false;
+        // Try different video devices
+        const int MAX_DEVICES = 32;
+        for (int device = 0; device < MAX_DEVICES; device++) {
+            std::cout << "Trying video device " << device << "...\n";
+            cap.open(device);
+            if (cap.isOpened()) {
+                std::cout << "Successfully opened video device " << device << "\n";
+
+                // Try to read a test frame
+                cv::Mat test_frame;
+                cap >> test_frame;
+                if (!test_frame.empty()) {
+                    std::cout << "Successfully read a frame from device " << device << "\n";
+
+                    // Set camera properties
+                    std::cout << "Setting resolution to " << FRAME_WIDTH << "x" << FRAME_HEIGHT << "\n";
+                    cap.set(cv::CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
+                    cap.set(cv::CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
+
+                    // Verify the actual resolution
+                    double actualWidth = cap.get(cv::CAP_PROP_FRAME_WIDTH);
+                    double actualHeight = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
+                    std::cout << "Actual resolution: " << actualWidth << "x" << actualHeight << "\n";
+
+                    running = true;
+                    return true;
+                }
+                std::cout << "Could not read frame from device " << device << ", trying next device\n";
+                cap.release();
             }
         }
 
-        // Print camera properties
-        std::cout << "Camera opened successfully\n";
-        std::cout << "Setting resolution to " << FRAME_WIDTH << "x" << FRAME_HEIGHT << "\n";
-
-        cap.set(cv::CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
-        cap.set(cv::CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
-
-        // Verify the actual resolution
-        double actualWidth = cap.get(cv::CAP_PROP_FRAME_WIDTH);
-        double actualHeight = cap.get(cv::CAP_PROP_FRAME_HEIGHT);
-        std::cout << "Actual resolution: " << actualWidth << "x" << actualHeight << "\n";
-
-        running = true;
-        return true;
+        std::cerr << "Error: Could not find a working camera\n";
+        return false;
     }
 
     ObstacleDetection process_frame(cv::Mat& frame) {
