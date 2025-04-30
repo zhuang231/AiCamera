@@ -34,6 +34,30 @@ void handleRequestComplete(libcamera::Request *req) {
         return;
     }
 
+//TODO do video stuff
+
+    munmap(data, length);
+
+// Recycle request
+camera->queueRequest(req);
+}
+
+void handleRequestCompleteA(libcamera::Request *req) {
+    std::cout << "Image capture complete!" << std::endl;
+
+    libcamera::FrameBuffer *buffer = req->buffers().begin()->second;
+    const libcamera::FrameBuffer::Plane &plane = buffer->planes()[0];
+
+    int fd = plane.fd.get();
+    size_t length = plane.length;
+    size_t offset = plane.offset;
+
+    void *data = mmap(NULL, length, PROT_READ, MAP_SHARED, fd, offset);
+    if (data == MAP_FAILED) {
+        std::cerr << "Failed to mmap buffer!" << std::endl;
+        return;
+    }
+
     // --- JPEG ENCODE START ---
     const uint8_t *yPlane = static_cast<uint8_t *>(data); // Assume Y channel only (grayscale)
     int width = 640;  // must match your streamConfig.size.width
@@ -106,17 +130,28 @@ int main() {
 
     const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator.buffers(streamConfig.stream());
 
-    std::unique_ptr<Request> request = camera->createRequest();
-    request->addBuffer(streamConfig.stream(), buffers[0].get());
+std::vector<std::unique_ptr<Request>> requests;
+bool complete = false;
+for (auto &buffer : buffers) {
+    std::unique_ptr<Request> req = camera->createRequest();
+    if (!req) {
+        std::cerr << "Failed to create request!" << std::endl;
+        return 1;
+    }
 
-    // Set up signal handling for completed request
-    bool complete = false;
-    camera->requestCompleted.connect(handleRequestComplete);
+    int ret = req->addBuffer(streamConfig.stream(), buffer.get());
+    if (ret < 0) {
+        std::cerr << "Failed to add buffer to request!" << std::endl;
+        return 1;
+    }
 
+    requests.push_back(std::move(req));
+}
     camera->start();
 
-    camera->queueRequest(request.get());
-
+for (size_t i = 0; i < requests.size(); ++i) {
+    camera->queueRequest(requests[i].get());
+}
     // Wait for capture to complete
     while (!complete) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
