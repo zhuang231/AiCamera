@@ -1,10 +1,10 @@
 TARGET = test
 CXX = g++
-CXXFLAGS = -std=c++17 -Icore $(shell pkg-config --cflags libcamera libdrm libjpeg)
+CXXFLAGS = -std=c++17 $(shell pkg-config --cflags libcamera libdrm libjpeg)
 LDFLAGS = $(shell pkg-config --libs libcamera libdrm libjpeg)
 LIBS =
 
-SRC = $(wildcard core/*.cpp) test.cpp
+SRC = test.cpp
 OBJ = $(SRC:.cpp=.o)
 
 $(TARGET): $(OBJ)
