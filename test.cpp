@@ -5,6 +5,8 @@
 #include <libcamera/framebuffer_allocator.h>
 #include <libcamera/stream.h>
 
+#include <jpeglib.h>
+
 #include <iostream>
 #include <fstream>
 #include <memory>
@@ -32,12 +34,47 @@ void handleRequestComplete(libcamera::Request *req) {
         return;
     }
 
-    std::ofstream file("image.yuv", std::ios::binary);
-    file.write(static_cast<char *>(data), length);
-    file.close();
+    // --- JPEG ENCODE START ---
+    const uint8_t *yPlane = static_cast<uint8_t *>(data); // Assume Y channel only (grayscale)
+    int width = 640;  // must match your streamConfig.size.width
+    int height = 480; // must match your streamConfig.size.height
+
+    FILE *outfile = fopen("image.jpg", "wb");
+    if (!outfile) {
+        std::cerr << "Failed to open output file!" << std::endl;
+        munmap(data, length);
+        return;
+    }
+
+    jpeg_compress_struct cinfo;
+    jpeg_error_mgr jerr;
+    cinfo.err = jpeg_std_error(&jerr);
+    jpeg_create_compress(&cinfo);
+    jpeg_stdio_dest(&cinfo, outfile);
+
+    cinfo.image_width = width;
+    cinfo.image_height = height;
+    cinfo.input_components = 1;
+    cinfo.in_color_space = JCS_GRAYSCALE;
+
+    jpeg_set_defaults(&cinfo);
+    jpeg_start_compress(&cinfo, TRUE);
+
+    JSAMPROW row_pointer[1];
+    while (cinfo.next_scanline < cinfo.image_height) {
+        row_pointer[0] = const_cast<JSAMPROW>(&yPlane[cinfo.next_scanline * width]);
+        jpeg_write_scanlines(&cinfo, row_pointer, 1);
+    }
+
+    jpeg_finish_compress(&cinfo);
+    jpeg_destroy_compress(&cinfo);
+    fclose(outfile);
+    // --- JPEG ENCODE END ---
 
     munmap(data, length);
 }
+
+
 
 
 int main() {
